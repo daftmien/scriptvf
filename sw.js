@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'jeu-cache-v8'; // 🔥 Change le nom du cache pour forcer le navigateur à l'utiliser
+const CACHE_NAME = 'jeu-cache-v8'; // 🔥 Auto-ajout des fichiers audio
 const ASSETS = [
     '/',
     '/index.html',
@@ -9,34 +9,55 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-    // Forcer l'activation immédiate du SW
-    self.skipWaiting();  // Ignore la phase de "waiting" et passe directement à "activate"
-    
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(ASSETS);
-        }).then(() => {
-            console.log("✅ Cache initialisé !");
-        })
+        (async () => {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.addAll(ASSETS);
+            
+            // Récupérer dynamiquement tous les fichiers audio depuis le fichier JSON
+            try {
+                const response = await fetch('/audio-list.json'); // URL du fichier JSON contenant les audios
+                const data = await response.json();
+                const audioFiles = data.audios; // Liste des fichiers audio
+
+                for (const file of audioFiles) {
+                    const fileURL = new URL(file, location.origin); // Crée une URL complète
+                    try {
+                        const audioResponse = await fetch(fileURL); // Essayer de récupérer le fichier audio
+                        if (audioResponse.ok) {
+                            await cache.put(fileURL, audioResponse.clone()); // Si valide, mettre en cache
+                            console.log(`✅ Fichier mis en cache : ${file}`);
+                        } else {
+                            console.warn(`⚠️ Impossible de récupérer : ${file}`);
+                        }
+                    } catch (err) {
+                        console.warn(`⚠️ Erreur de téléchargement pour : ${file} - ${err.message}`);
+                    }
+                }
+            } catch (err) {
+                console.warn("⚠️ Impossible de récupérer la liste des fichiers audio automatiquement", err);
+            }
+            
+            self.skipWaiting(); // Passer directement au worker actif
+        })()
     );
 });
 
 self.addEventListener('activate', (event) => {
-    // Supprimer les anciens caches
     event.waitUntil(
         caches.keys().then((keys) => {
             return Promise.all(
-                keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+                keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)) // Nettoyage des anciens caches
             );
-        }).then(() => self.clients.claim())  // Prendre immédiatement le contrôle des pages ouvertes
+        }).then(() => self.clients.claim())
     );
-    console.log("✅ Service Worker activé et caches nettoyés !");
+    console.log("✅ Service Worker activé et cache nettoyé !");
 });
 
 self.addEventListener('fetch', (event) => {
     event.respondWith(
         caches.match(event.request).then(response => {
-            return response || fetch(event.request);
+            return response || fetch(event.request); // Retourner le cache ou récupérer via le réseau
         })
     );
 });
